@@ -13,4 +13,4 @@
    
 2. 在MySQl中新建名为`demo_db`的数据库，在该数据库中执行`demo_db.sql`文件建表
 3. 在idea中构建并运行该Spring项目
-4. 访问`localhost:8888`
+4. 访问`localhost:8888/index`
