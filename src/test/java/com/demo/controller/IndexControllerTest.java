@@ -8,9 +8,7 @@ import com.demo.service.MessageService;
 import com.demo.service.MessageVoService;
 import com.demo.service.NewsService;
 import com.demo.service.VenueService;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,13 +16,18 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.ui.Model;
+import org.springframework.web.servlet.ModelAndView;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -84,8 +87,8 @@ public class IndexControllerTest {
 
 
     /**
-     * 测试访问index方法访问
-     * 当没有任何新闻、场馆、消息时
+     * 使用语句覆盖测试index函数。对底层service进行mock提供空的消息，场地信息和新闻
+     * @see IndexController#index(Model)
      */
     @Test
     void indexTestWhenNoData() throws Exception {
@@ -102,7 +105,7 @@ public class IndexControllerTest {
                 .andExpect(model().attribute("venue_list", hasSize(0)))
                 .andExpect(model().attribute("message_list", hasSize(0)))
                 .andReturn();
-
+        // 语句覆盖
         verify(newsService, times(1)).findAll(any(Pageable.class));
         verify(venueService, times(1)).findAll(any(Pageable.class));
         verify(messageService, times(1)).findPassState(any(Pageable.class));
@@ -110,23 +113,27 @@ public class IndexControllerTest {
     }
 
     /**
-     * 测试访问index方法
-     * 当有新闻、场馆、消息时
+     *  使用语句覆盖测试index函数。对底层service进行mock提供非空的消息，场地信息和新闻
+     * @see IndexController#index(Model) 
      */
     @Test
     void indexTestWhenData() throws Exception {
         int size = 3;
+        List<News> mockNewsList = mockNewsList(size);
+        List<Venue> mockVenueList = mockVenueList(size);
+        List<Message> mockMessageList = mockMessageList(size);
+        List<MessageVo> mockMessageVoList = mockMessageVoList(size);
+
         when(newsService.findAll(any(Pageable.class)))
-                .thenReturn(new PageImpl<>(mockNewsList(size)) );
+                .thenReturn(new PageImpl<>(mockNewsList) );
         when(venueService.findAll(any(Pageable.class)))
-                .thenReturn(new PageImpl<>(mockVenueList(size)) );
+                .thenReturn(new PageImpl<>(mockVenueList) );
         when(messageService.findPassState(any(Pageable.class)))
-                .thenReturn(new PageImpl<>(mockMessageList(size)) );
+                .thenReturn(new PageImpl<>(mockMessageList) );
         when(messageVoService.returnVo(any(List.class)))
-                .thenReturn(mockMessageVoList(size));
+                .thenReturn(mockMessageVoList);
 
-
-        mockMvc.perform(get("/index"))
+        MvcResult mvcResult = mockMvc.perform(get("/index"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("index"))
                 .andExpect(model().attribute("user", nullValue()))
@@ -134,7 +141,20 @@ public class IndexControllerTest {
                 .andExpect(model().attribute("venue_list", hasSize(size)))
                 .andExpect(model().attribute("message_list", hasSize(size)))
                 .andReturn();
+        // 测试排列顺序
+        ModelAndView modelAndView = mvcResult.getModelAndView();
+        List<News> returnedNewsList = (List<News>) modelAndView.getModel().get("news_list");
+        List<Venue> returnedVenueList = (List<Venue>) modelAndView.getModel().get("venue_list");
+        List<MessageVo> returnedMessageList = (List<MessageVo>) modelAndView.getModel().get("message_list");
+        mockVenueList.sort(Comparator.comparing(Venue::getVenueID));
+        mockNewsList.sort(Comparator.comparing(News::getTime).reversed());
+        mockMessageList.sort(Comparator.comparing(Message::getTime).reversed());
 
+        assertEquals(mockNewsList, returnedNewsList);
+        assertEquals(mockVenueList, returnedVenueList);
+        assertEquals(mockMessageVoList, returnedMessageList);
+
+        // 语句覆盖
         verify(newsService, times(1)).findAll(any(Pageable.class));
         verify(venueService, times(1)).findAll(any(Pageable.class));
         verify(messageService, times(1)).findPassState(any(Pageable.class));
@@ -142,7 +162,8 @@ public class IndexControllerTest {
     }
 
     /**
-     * 测试访问adminIndex方法
+     * 使用语句覆盖测试admin_index函数
+     * @see IndexController#admin_index(Model)
      */
     @Test
     void adminIndexTest() throws Exception {
