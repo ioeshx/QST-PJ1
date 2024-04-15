@@ -16,11 +16,14 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 import static org.hamcrest.Matchers.samePropertyValuesAs;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -32,10 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class AdminUserControllerTest {
     @Autowired
     MockMvc mockMvc;
-
     @MockBean
     private UserService userService;
-
 
     private User getRealUser(int id, String userID, String userName, String password, String email, String phone, int isAdmin) throws Exception {
         User user = new User();
@@ -135,10 +136,11 @@ public class AdminUserControllerTest {
                         + "{\"id\":7,\"userID\":\"user7\",\"userName\":\"user7\",\"password\":\"password7\",\"email\":\"user\"},"
                         + "{\"id\":8,\"userID\":\"user8\",\"userName\":\"user8\",\"password\":\"password8\",\"email\":\"user\"},"
                         + "{\"id\":9,\"userID\":\"user9\",\"userName\":\"user9\",\"password\":\"password9\",\"email\":\"user\"}]"));
+        verify(userService, times(1)).findByUserID(any(Pageable.class));
     }
 
     /**
-     * 测试GET请求不带参数page，userList返回结果
+     * 测试GET请求不带参数page(使用默认参数1)，测试userList
      */
     @Test
     void userListTestWhenArgumentPageEmpty() throws Exception {
@@ -147,6 +149,7 @@ public class AdminUserControllerTest {
         mockMvc.perform(get("/userList.do"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
+        verify(userService, times(1)).findByUserID(any(Pageable.class));
 
         when(userService.findByUserID(any(Pageable.class)))
                 .thenReturn(new PageImpl<>(getMockUsers(10)));
@@ -166,6 +169,7 @@ public class AdminUserControllerTest {
 
     /**
      * 当Page参数小于等于0时，测试userList
+     * 这个测试应该失败并抛出异常
      */
     @Test
     void userListTestWhenArgumentPageLEZero() throws Exception {
@@ -181,7 +185,6 @@ public class AdminUserControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
     }
-
 
     /**
      * 当参数Page超过总页数时，测试userList
@@ -220,6 +223,7 @@ public class AdminUserControllerTest {
 
     /**
      * 当Id不存在时，测试user_edit函数
+     * 这个测试应该失败并抛出异常，TemplateInputException: An error happened during template parsing (template: "class path resource [templates/admin/user_edit.html]")
      */
     @Test
     void user_editTestWhenIDNotExists() throws Exception {
@@ -234,11 +238,113 @@ public class AdminUserControllerTest {
         verify(userService, times(1)).findById(any(Integer.class));
     }
 
-    // TODO modifyUser函数测试
+    /**
+     * 当所有参数合法时，测试modifyUser函数
+     * @see AdminUserController#modifyUser
+     */
+    @Test
+    void modifyUserTestWhenAllArgumentsValid() throws Exception {
+        User mockUser = getRealUser(1, "user1", "user1", "password1", "", "", 0);
+        when(userService.findByUserID(any(String.class)))
+                .thenReturn(mockUser);
+        doNothing().when(userService).updateUser(any(User.class));
 
+        mockMvc.perform(post("/modifyUser.do")
+                        .param("userID", "user1")
+                        .param("oldUserID", "user1")
+                        .param("userName", "user1")
+                        .param("password", "password1")
+                        .param("email", ""))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_manage"));
+    }
 
+    /**
+     * 当oldUserID在数据库中不存在时(找不到对应用户)，测试modifyUser函数
+     * 这个测试应该失败并抛出NullPointerException
+     * @see AdminUserController#modifyUser
+     */
+    @Test
+    void modifyUserTestWhenOldIDNotExists() throws Exception {
+        when(userService.findByUserID(any(String.class)))
+                .thenReturn(null);
 
-    // TODO addUser函数测试
+        mockMvc.perform(post("/modifyUser.do")
+                        .param("userID", "user1")
+                        .param("oldUserID", "Not Exists")
+                        .param("userName", "user1")
+                        .param("password", "password1")
+                        .param("email", ""))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_manage"));
+    }
+
+    /**
+     * 当除了oldUserID之外，其他参数长度超过限制，测试modifyUser函数
+     * 这个测试应该失败，并抛出异常
+     * @see AdminUserController#modifyUser
+     */
+    @Test
+    void modifyUserTestWhenStringTooLong() throws Exception {
+        User mockUser = getRealUser(1, "user1", "user1", "password1", "", "", 0);
+        when(userService.findByUserID(any(String.class)))
+                .thenReturn(mockUser);
+        doThrow(new IllegalArgumentException("String too long"))
+                .when(userService).updateUser(any(User.class));
+        String longString = new String(new char[256]).replace("\0", "a");
+
+        mockMvc.perform(post("/modifyUser.do")
+                        .param("userID", "user1")
+                        .param("oldUserID", "user1")
+                        .param("userName", longString)
+                        .param("password", "password1")
+                        .param("email", "123@qq.com"))
+                .andExpect(status().isBadRequest());
+
+    }
+
+    // addUser与modifyUser基本一致,除了这一点
+    // modify是修改已有User，addUser是新增加User
+    // 非法情况比modifyUser函数少，只要考虑字符串超过长度
+    /**
+     * 当所有参数合法时，测试addUser函数
+     * @see AdminUserController#addUser
+     */
+    @Test
+    void addUserTestSuccess() throws Exception {
+        when(userService.create(any(User.class)))
+                .thenReturn(1);
+
+        mockMvc.perform(post("/addUser.do")
+                        .param("userID", "user1")
+                        .param("userName", "user1")
+                        .param("password", "password1")
+                        .param("email", "")
+                        .param("phone", ""))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_manage"));
+    }
+    /**
+     * 当任意参数超过长度限制时，测试addUser函数
+     * 这个测试应该失败，抛出异常
+     * @see AdminUserController#addUser
+     */
+    @Test
+    void addUserTestWhenStringTooLong() throws Exception {
+        String longString = new String(new char[256]).replace("\0", "a");
+        doThrow(new IllegalArgumentException("String too long"))
+                .when(userService).create(any(User.class));
+
+        mockMvc.perform(post("/addUser.do")
+                        .param("userID", longString)
+                        .param("userName", "user1")
+                        .param("password", "password1")
+                        .param("email", "")
+                        .param("phone", ""))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_manage"));
+
+    }
 
     /**
      * 当userID已被使用，测试checkUserID函数
@@ -288,7 +394,7 @@ public class AdminUserControllerTest {
     }
     /**
      * userID不存在时，测试delUser函数
-     * 应该失败
+     * 这个测试应该失败，并抛出异常IllegalArgumentException: User not found
      */
     @Test
     void delUserIDTestWhenUserIDNotExists() throws Exception {

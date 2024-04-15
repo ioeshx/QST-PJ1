@@ -18,3 +18,20 @@
 # 测试代码说明
 
 1. 使用了mockMVC，并且对controller层用到的Service进行mock
+
+## 测试代码完成情况
+
+- [x] IndexController
+1. user
+   - [x] UserController
+   - [x] OrderController
+   - [ ] MessageController
+   - [ ] NewsController
+   - [ ] VenueController
+
+2. admin
+    - [x] AdminUserController
+    - [x] AdminOrderController
+    - [ ] AdminMessageController
+    - [ ] AdminNewsController
+    - [ ] AdminVenueController

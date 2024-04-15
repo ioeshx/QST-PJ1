@@ -58,9 +58,15 @@ public class AdminOrderControllerTest {
         }
         return orderVoList;
     }
-    // TODO reservation_manage 等价类划分应该有四种，还要补充
+    // reservation_manage 等价类划分应该有四种，
+    // 1. 未审查order和已审查order都存在
+    // 2. 未审查order存在，已审查order不存在
+    // 3. 未审查order不存在，已审查order存在
+    // 4. 未审查order和已审查order都不存在
+    // 为了简化测试，合并成两种
     /**
-     * 当order数据存在时，测试reservation_manage方法
+     * 当未审查order和已审查order都存在时
+     * 测试reservation_manage方法
      * @see AdminOrderController#reservation_manage
      */
     @Test
@@ -88,7 +94,8 @@ public class AdminOrderControllerTest {
     }
 
     /**
-     * 当order数据不存在时，测试reservation_manage方法
+     * 当未审查order和已审查order都不存在时
+     * 测试reservation_manage方法
      * @see AdminOrderController#reservation_manage
      */
     @Test
@@ -113,10 +120,10 @@ public class AdminOrderControllerTest {
         verify(orderVoService,times(1)).returnVo(any(List.class));
         verify(orderService,times(1)).findNoAuditOrder(any(Pageable.class));
     }
-    // TODO getNoAuditOrder 还要补充用例
+
     /**
-     * 管理员查看未审核订单
-     * 当order数据存在并且参数Page正确时，测试getNoAuditOrder方法
+     * 当未审查order数据存在并且参数Page正确时，
+     * 测试getNoAuditOrder方法
      * @see AdminOrderController#getNoAuditOrder
      */
     @Test
@@ -138,10 +145,33 @@ public class AdminOrderControllerTest {
         verify(orderService,times(1)).findNoAuditOrder(any(Pageable.class));
         verify(orderVoService,times(1)).returnVo(any(List.class));
     }
+    /**
+     * 当未审查order数据存在，并且参数Page超过页数上限时
+     * 测时getNoAuditOrder方法
+     * @see AdminOrderController#getNoAuditOrder
+     */
+    @Test
+    void getNoAuditOrderTestWhenPageOverLimit() throws Exception {
+        int size = 0;
+        List<Order> mockOrderList = getMockOrderList(size);
+        Page<Order> mockOrderPage = new PageImpl<>(mockOrderList);
+        List<OrderVo> mockOrderVoList = getMockOrderVoList(mockOrderList);
+        when(orderService.findNoAuditOrder(any(Pageable.class)))
+                .thenReturn(mockOrderPage);
+        when(orderVoService.returnVo(any(List.class)))
+                .thenReturn(mockOrderVoList);
+
+        mockMvc.perform(get("/admin/getOrderList.do")
+                        .param("page", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
+
+        verify(orderService,times(1)).findNoAuditOrder(any(Pageable.class));
+        verify(orderVoService,times(1)).returnVo(any(List.class));
+    }
 
     /**
-     * 管理员查看未审核订单
-     * 当order数据不存在并且参数Page正确时，测试getNoAuditOrder方法
+     * 当未审查order数据不存在并且参数Page正确时，测试getNoAuditOrder方法
      * @see AdminOrderController#getNoAuditOrder
      */
     @Test
@@ -164,9 +194,8 @@ public class AdminOrderControllerTest {
     }
 
     /**
-     * 管理员查看未审核订单
      * 当参数Page错误(Page<=0)时，测试getNoAuditOrder方法
-     * 测试应该失败并抛出异常
+     * 这个测试应该失败并抛出异常 java.lang.IllegalArgumentException: Page index must not be less than zero!
      * @see AdminOrderController#getNoAuditOrder
      */
     @Test
@@ -178,9 +207,9 @@ public class AdminOrderControllerTest {
                 .thenReturn(mockOrderPage);
         when(orderVoService.returnVo(any(List.class)))
                 .thenReturn(mockOrderVoList);
-
+        //Page参数小于或等于0会出错，是一个非法等价类
         mockMvc.perform(get("/admin/getOrderList.do")
-                        .param("page", "0"))    //Page参数小于或等于0会出错，是一个等价类
+                        .param("page", "0"))
                 .andExpect(status().isOk())
                 .andExpect(content().json(mockOrderList.toString()));
 

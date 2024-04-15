@@ -205,6 +205,9 @@ public class UserControllerTest {
                 .andExpect(status().is3xxRedirection());
     }
 
+    /**
+     * （等价类划分）测试logout函数，用户已经登录（session中有user）
+     */
     @Test
     void logOutTestWhenLogin() throws Exception{
         MockHttpSession mockHttpSession = getMockHttpSession(getMockUser(true,true), true);
@@ -214,12 +217,20 @@ public class UserControllerTest {
                 .andExpect(redirectedUrl("/index"))
                 .andExpect(request().sessionAttribute("user", nullValue()));
     }
+
+    /**
+     * （等价类划分）测试logout函数，用户未登录（session中没有user）
+     */
     @Test
     void logOutTestWhenNotLogin() throws Exception{
         mockMvc.perform(get("/logout.do"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/index"));
     }
+
+    /**
+     * （等价类划分）测试quit函数，管理员已经登录（session中有admin）
+     */
     @Test
     void quitTestWhenLogin() throws Exception{
         MockHttpSession mockHttpSession = getMockHttpSession(getMockUser(true,false), false);
@@ -229,6 +240,9 @@ public class UserControllerTest {
                 .andExpect(redirectedUrl("/index"))
                 .andExpect(request().sessionAttribute("user", nullValue()));
     }
+    /**
+     * （等价类划分）测试quit函数，管理员未登录（session中没有admin）
+     */
     @Test
     void quitTestWhenNotLogin() throws Exception{
         mockMvc.perform(get("/quit.do"))
@@ -237,7 +251,7 @@ public class UserControllerTest {
     }
 
     /**
-     * 使用合法参数测试updateUser函数
+     * userID存在，使用合法参数，测试updateUser函数
      */
     @Test
     void updateUserTestSuccess() throws Exception{
@@ -247,6 +261,7 @@ public class UserControllerTest {
 
         when(userService.findByUserID(eq("test_user")))
                 .thenReturn(mockUser);
+        doNothing().when(userService).updateUser(any(User.class));
 
         mockMvc.perform(multipart("/updateUser.do")
                         .file(mockFile)
@@ -259,10 +274,13 @@ public class UserControllerTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("user_info"))
                 .andExpect(request().sessionAttribute("user", samePropertyValuesAs(expectedUser)));
+
+        verify(userService, times(1)).findByUserID(eq("test_user"));
+        verify(userService, times(1)).updateUser(any(User.class));
     }
 
     /**
-     * 当userID为空时，测试updateUser函数
+     * 当userID在数据库不存在（找不到对于User），测试updateUser函数
      */
     @Test
     void updateUserWhenUserNotExists() {
@@ -282,10 +300,12 @@ public class UserControllerTest {
     }
 
     /**
-     * 当输入参数不合法时（为空，长度超过限制或者不符合格式），测试updateUser
+     * userID存在，
+     * 但是输入参数userName,PasswordNew,email,phone，其中任意一个不合法时（为空，长度超过限制或者不符合格式）
+     * 测试updateUser
      */
     @Test
-    void updateUserWhenAruguInvalid() throws Exception {
+    void updateUserWhenArgumentInvalid() throws Exception {
         String longString = new String(new char[256]).replace("\0", "a");
         MockMultipartFile mockFile = new MockMultipartFile("picture", "", "", "".getBytes());
         User mockUser = getRealUser(0,"test_user", "test", "123", "", "",  0, null);
@@ -312,6 +332,82 @@ public class UserControllerTest {
     }
 
     /**
+     * password参数为空或null，测试updateUser函数
+     */
+    @Test
+    void updateUserTestWhenPasswordEmptyOrNull() throws Exception {
+        MockMultipartFile mockFile = new MockMultipartFile("picture", "", "", "".getBytes());
+        User mockUser = getRealUser(0,"test_user", "test", "123", "test@qq.com", "12345",  0, null);
+        User expectedUser = new User(0, "test_user", "username_update", "123", "123456789@qq.com", "12345678910", 0, null);
+
+        when(userService.findByUserID(eq("test_user")))
+                .thenReturn(mockUser);
+        doNothing().when(userService).updateUser(any(User.class));
+
+        // PasswordNew为空
+        mockMvc.perform(multipart("/updateUser.do")
+                        .file(mockFile)
+                        .param("userName","username_update")
+                        .param("userID","test_user")
+                        .param("passwordNew","")
+                        .param("email","123456789@qq.com")
+                        .param("phone","12345678910")//.param("picture","")
+                )
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_info"))
+                .andExpect(request().sessionAttribute("user", samePropertyValuesAs(expectedUser)));
+
+        verify(userService, times(1)).findByUserID(eq("test_user"));
+        verify(userService, times(1)).updateUser(any(User.class));
+
+        // password为null，请求不带password
+        mockMvc.perform(multipart("/updateUser.do")
+                        .file(mockFile)
+                        .param("userName","username_update")
+                        .param("userID","test_user")
+                        .param("email","123456789@qq.com")
+                        .param("phone","12345678910")//.param("picture","")
+                )
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_info"))
+                .andExpect(request().sessionAttribute("user", samePropertyValuesAs(expectedUser)));
+
+    }
+
+    /**
+     * TODO 关于Picture参数的测试还要补充
+     * picture参数的OriginalFilename为空时，测试updateUser函数
+     */
+    @Test
+    void updateUserTestWhenPictureEmpty() throws Exception {
+        MockMultipartFile mockFile = new MockMultipartFile("picture", "", "", "".getBytes());
+        User mockUser = getRealUser(0,"test_user", "test", "123", "test@qq.com", "12345",  0, null);
+        mockUser.setPicture("test.jpg");
+        User expectedUser = new User(0, "test_user", "username_update", "test", "123456789@qq.com", "12345678910", 0, null);
+        expectedUser.setPicture("test.jpg");
+
+        when(userService.findByUserID(eq("test_user")))
+                .thenReturn(mockUser);
+        doNothing().when(userService).updateUser(any(User.class));
+
+        mockMvc.perform(multipart("/updateUser.do")
+                        .file(mockFile)
+                        .param("userName","username_update")
+                        .param("userID","test_user")
+                        .param("passwordNew","test")
+                        .param("email","123456789@qq.com")
+                        .param("phone","12345678910")//.param("picture","")
+                )
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("user_info"))
+                .andExpect(request().sessionAttribute("user", samePropertyValuesAs(expectedUser)));
+
+        verify(userService, times(1)).findByUserID(eq("test_user"));
+        verify(userService, times(1)).updateUser(any(User.class));
+
+    }
+
+    /**
      * 当输入的userID已存在，密码正确时，测试checkPassword函数
      */
     @Test
@@ -331,7 +427,7 @@ public class UserControllerTest {
     @Test
     void checkPasswordTestWhenFalse() throws Exception {
         when(userService.findByUserID(eq("test_user")))
-                .thenReturn(getRealUser(0,"test_user", "test", "78910", "", "",  0, null));
+                .thenReturn(getRealUser(0,"test_user", "test", "wrongPassword", "", "",  0, null));
 
         mockMvc.perform(get("/checkPassword.do")
                         .param("userID","test_user")
@@ -360,7 +456,7 @@ public class UserControllerTest {
     }
 
     /**
-     * 用户未登录时(sessionn中没有用户)，测试user_info函数
+     * 用户未登录时(session中没有用户)，测试user_info函数
      * 应该会失败
      */
     @Test
@@ -375,7 +471,7 @@ public class UserControllerTest {
     }
 
     /**
-     * 用户登录时(sessionn中有用户)，测试user_info函数
+     * 用户登录时(session中有用户)，测试user_info函数
      */
     @Test
     void user_infoTestWhenUserLogin() throws Exception{

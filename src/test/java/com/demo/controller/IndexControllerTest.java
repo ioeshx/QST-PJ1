@@ -85,7 +85,6 @@ public class IndexControllerTest {
         return messageVoList;
     }
 
-
     /**
      * 使用语句覆盖测试index函数。对底层service进行mock提供空的消息，场地信息和新闻
      * @see IndexController#index(Model)
@@ -170,6 +169,5 @@ public class IndexControllerTest {
         mockMvc.perform(get("/admin_index"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("admin/admin_index"));
-
     }
 }

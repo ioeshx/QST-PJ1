@@ -18,10 +18,12 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.ui.Model;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -283,9 +285,9 @@ public class OrderControllerTest {
                 .thenReturn(new PageImpl<>(new ArrayList<>()));
         when(orderVoService.returnVo(anyList()))
                 .thenReturn(new ArrayList<>());
-
+        // page小于等于0，是一个非法等价类
         mockMvc.perform(get("/getOrderList.do")
-                        .param("page", "0")     // page小于等于0，是一个非法等价类
+                        .param("page", "0")
                         .session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(0)))
@@ -295,9 +297,8 @@ public class OrderControllerTest {
         verify(orderVoService, times(0)).returnVo(anyList());
     }
 
-    // TODO addOrder方法还要补充测试用例
     /**
-     * 当用户已登录时，测试addOrder方法
+     * 当用户未登录时（session中没有user），测试addOrder方法
      * @see OrderController#addOrder
      */
     @Test
@@ -305,26 +306,84 @@ public class OrderControllerTest {
         MockHttpSession session = getMockHttpSession(null);
 
         try{
-            mockMvc.perform(get("/addOrder.do")
+            mockMvc.perform(post("/addOrder.do")
+                            .param("venueName", "venueName")
+                            .param("date", "")
+                            .param("startTime", "2020-01-01 12:00")
+                            .param("hours", "1")
                     .session(session));
         } catch (Exception e) {
             assert e.getCause() instanceof LoginException;
             assert e.getCause().getMessage().equals("请登录！");
         }
     }
+
     /**
-     * 当用户已登录时，测试addOrder方法
+     * 当用户已登录时，并且参数都正确时，测试addOrder方法
+     * 传入的data未被使用
      * @see OrderController#addOrder
      */
     @Test
-    void add_orderTestWhenLogin() throws Exception{
+    void add_orderTestSuccess() throws Exception{
+        User mockUser = getMockUser("1");
+        MockHttpSession session = getMockHttpSession(mockUser);
+        doNothing().when(orderService)
+                .submit(anyString(), any(LocalDateTime.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/addOrder.do")
+                        .param("venueName", "venueName")
+                        .param("date", "")
+                        .param("startTime", "2020-01-01 12:00")
+                        .param("hours", "1")
+                .session(session))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("order_manage"))
+                .andReturn();
+
+        verify(orderService, times(1)).submit(anyString(), any(LocalDateTime.class), anyInt(), anyString());
+    }
+    /**
+     * 当venue,startTime,hours参数其中任意一个为空时，测试addOrder方法
+     * @see OrderController#addOrder
+     */
+    @Test
+    void add_orderTestWhenArgumentEmpty() throws Exception{
         User mockUser = getMockUser("1");
         MockHttpSession session = getMockHttpSession(mockUser);
 
-//        mockMvc.perform(get("/addOrder.do")
-//                .session(session))
-//                .andExpect(status().isOk())
-//                .andReturn();
+        doThrow(new IllegalArgumentException("Argument Empty"))
+                .when(orderService)
+                .submit(anyString(), any(LocalDateTime.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/addOrder.do")
+                        .param("venueName", "") //venueName为空
+                        .param("date", "")
+                        .param("startTime", "2020-01-01 12:00")
+                        .param("hours", "") //hour为空
+                .session(session))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+    }
+
+    /**
+     * 当startTime参数日期格式不正确时，测试addOrder方法
+     * 这个测试应该失败，抛出java.time.format.DateTimeParseException
+     */
+    @Test
+    void add_orderTestWhenDateFormatError() throws Exception{
+        User mockUser = getMockUser("1");
+        MockHttpSession session = getMockHttpSession(mockUser);
+        doNothing().when(orderService)
+                .submit(anyString(), any(LocalDateTime.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/addOrder.do")
+                        .param("venueName", "venueName")
+                        .param("date", "")
+                        .param("startTime", "2020-0101 12:00")
+                        .param("hours", "1")
+                .session(session))
+                .andExpect(status().isBadRequest())
+                .andReturn();
     }
 
     /**
@@ -348,6 +407,7 @@ public class OrderControllerTest {
     @Test
     void finishOrderTestWhenIDNotExist() throws Exception{
         doThrow(new RuntimeException("Order not found")).when(orderService).finishOrder(anyInt());
+
         mockMvc.perform(post("/finishOrder.do")
                         .param("orderID", "9999"))
                 .andExpect(status().is4xxClientError())
@@ -382,20 +442,23 @@ public class OrderControllerTest {
 
     /**
      * 当orderID在数据库不存在时，测试editOrder方法
+     * 这个测试应该失败并抛出异常 java.lang.NullPointerException
      * @see OrderController#editOrder
      */
     @Test
     void editOrderTestWhenIDNotExist() throws Exception{
         int orderID = 1;
         when(orderService.findById(eq(orderID)))
-                .thenReturn(mock(Order.class));
+                .thenReturn(null);
         when(venueService.findByVenueID(anyInt()))
-                .thenReturn(mock(Venue.class));
+                .thenReturn(null);
 
         mockMvc.perform(get("/modifyOrder.do")
                         .param("orderID", String.valueOf(orderID)))
                 .andExpect(status().isOk())
                 .andExpect(view().name("order_edit"))
+                .andExpect(model().attribute("order", nullValue()))
+                .andExpect(model().attribute("venue", nullValue()))
                 .andReturn();
 
         verify(orderService, times(1)).findById(eq(orderID));
@@ -419,14 +482,101 @@ public class OrderControllerTest {
                 .andExpect(status().is4xxClientError());
 
     }
-    // TODO modifyOrder方法还要补充测试用例
+
+    //  modifyOrder与addOrder基本上是类似的
+    //  只是modify多了一个orderId参数
     /**
-     * 测试modifyOrder方法
+     * 用户未登录时，测试modifyOrder方法
      * @see OrderController#modifyOrder
      */
     @Test
-    void modifyOrderTest() throws Exception{
+    void modifyOrderTestWhenNotLogin() throws Exception{
+        MockHttpSession session = getMockHttpSession(null);
 
+        try{
+            mockMvc.perform(post("/modifyOrder")
+                            .param("venueName", "venueName")
+                            .param("date", "")
+                            .param("startTime", "2020-01-01 12:00")
+                            .param("hours", "1")
+                            .param("orderID", "1")
+                    .session(session));
+        } catch (Exception e) {
+            assert e.getCause() instanceof LoginException;
+            assert e.getCause().getMessage().equals("请登录！");
+        }
+    }
+
+    /**
+     * 用户已登录，参数正确时，modifyOrder方法
+     * @see OrderController#modifyOrder
+     */
+    @Test
+    void modifyOrderTestSuccess() throws Exception{
+        User mockUser = getMockUser("1");
+        MockHttpSession session = getMockHttpSession(mockUser);
+        doNothing().when(orderService)
+                .updateOrder(anyInt(), anyString(), any(LocalDateTime.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/modifyOrder")
+                        .param("orderID", "1")
+                        .param("venueName", "venueName")
+                        .param("date", "")
+                        .param("startTime", "2020-01-01 12:00")
+                        .param("hours", "1")
+                        .session(session))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("order_manage"))
+                .andExpect(content().string("true"))
+                .andReturn();
+
+        verify(orderService, times(1)).updateOrder(anyInt(), anyString(), any(LocalDateTime.class), anyInt(), anyString());
+    }
+    /**
+     * 当OrderID,venueName,startTime,hour中任意参数为空时，测试modifyOrder方法
+     * @see OrderController#modifyOrder
+     */
+    @Test
+    void modifyOrderTestWhenArgumentEmpty() throws Exception{
+        User mockUser = getMockUser("1");
+        MockHttpSession session = getMockHttpSession(mockUser);
+
+        doThrow(new IllegalArgumentException("Argument Empty"))
+                .when(orderService)
+                .updateOrder(anyInt(), anyString(), any(LocalDateTime.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/modifyOrder")
+                        .param("orderID", "1")
+                        .param("venueName", "") //venueName为空
+                        .param("date", "")
+                        .param("startTime", "2020-01-01 12:00")
+                        .param("hours", "") //hour为空
+                        .session(session))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        verify(orderService, times(0)).updateOrder(anyInt(), anyString(), any(LocalDateTime.class), anyInt(), anyString());
+    }
+
+    /**
+     * 当startTime参数日期格式不正确时，测试addOrder方法
+     * 这个测试应该失败，抛出java.time.format.DateTimeParseException
+     * @see OrderController#modifyOrder
+     */
+    @Test
+    void modifyOrderTestWhenDateFormatError() throws Exception{
+        User mockUser = getMockUser("1");
+        MockHttpSession session = getMockHttpSession(mockUser);
+
+        mockMvc.perform(post("/modifyOrder")
+                        .param("orderID", "1")
+                        .param("venueName", "venueName")
+                        .param("date", "")
+                        .param("startTime", "2020-0101 12:00")  //日期格式错误
+                        .param("hours", "1")
+                        .session(session))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string("true"))
+                .andReturn();
     }
 
     /**
@@ -445,42 +595,96 @@ public class OrderControllerTest {
     }
     /**
      * 当OrderId参数在数据库中不存在时，测试delOrder方法
-     * TODO 修改这个测试用例，使其通过
+     * 这个测试应该失败并抛出异常 IllegalArgumentException: Order not found
      * @see OrderController#delOrder
      */
     @Test
     void delOrderTestWhenIDNotExist() throws Exception{
         doThrow(new IllegalArgumentException("Order not found"))
                 .when(orderService).delOrder(anyInt());
+
         mockMvc.perform(post("/delOrder.do")
-                        .param("orderID", "999")
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                        .param("orderID", "999"))
                 .andExpect(status().isOk())
+                .andExpect(content().string("true"))
                 .andReturn();
     }
     /**
      * 当GET请求不带orderID参数时，测试delOrder方法
-     * 因为不带OrderId参数，应该抛出如下异常（我没有捕获）
+     * 这个测试应该失败并抛出异常（我没有捕获）
      * java.lang.IllegalStateException: Optional int parameter 'orderID' is present but cannot be translated into a null value due to being declared as a primitive type. Consider declaring it as object wrapper for the corresponding primitive type.
      * @see OrderController#delOrder
      */
     @Test
     void delOrderTestWhenNoArgument() throws Exception{
         doNothing().when(orderService).delOrder(anyInt());
+
         mockMvc.perform(post("/delOrder.do"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("true"))
                 .andReturn();
     }
 
-    // TODO getOrder方法还要补充测试用例
     /**
-     * 测试getOrder方法
+     * 当所有参数正确时，测试getOrder方法
      * @see OrderController#getOrder
      */
     @Test
-    void getOrderTest() throws Exception{
+    void getOrderTestSuccess() throws Exception{
+        int size = 5;
+        Venue mockVenue = new Venue(1, "venueName", "description", 100, "picture", "address", "open_time", "close_time");
+        List<Order> mockOrderList = getMockOrderList(size);
+        when(venueService.findByVenueName(anyString()))
+                .thenReturn(mockVenue);
+        when(orderService.findDateOrder(anyInt(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(mockOrderList);
 
+        mockMvc.perform(get("/order/getOrderList.do")
+                        .param("venueName", "venueName")
+                        .param("date", "2021-01-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.venue.venueID", equalTo(mockVenue.getVenueID())))
+                .andExpect(jsonPath("$.orders", hasSize(size)))
+                .andReturn();
+        verify(venueService, times(1)).findByVenueName(anyString());
+        verify(orderService, times(1)).findDateOrder(anyInt(), any(LocalDateTime.class), any(LocalDateTime.class));
+    }
+    /**
+     * 当venueName不存在时，测试getOrder方法
+     * 这个测试应该失败并抛出异常 NullPointerException
+     * @see OrderController#getOrder
+     */
+    @Test
+    void getOrderTestWhenVenueNameNotExist() throws Exception{
+        when(venueService.findByVenueName(anyString()))
+                .thenReturn(null);
+
+        mockMvc.perform(get("/order/getOrderList.do")
+                        .param("venueName", "venueName")
+                        .param("date", "2021-01-01"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        verify(venueService, times(1)).findByVenueName(anyString());
+    }
+
+    /**
+     * 当date参数格式不正确时，测试getOrder方法
+     * 这个测试应该失败并抛出异常
+     * @see OrderController#getOrder
+     */
+    @Test
+    void getOrderTestWhenDateFormatError() throws Exception{
+        when(venueService.findByVenueName(anyString()))
+                .thenReturn(new Venue());
+
+        mockMvc.perform(get("/order/getOrderList.do")
+                        .param("venueName", "venueName")
+                        .param("date", "2020-1-1")) //日期格式不正确
+                .andExpect(status().isOk())
+                .andReturn();
+
+        verify(venueService, times(1)).findByVenueName(anyString());
     }
 
 }
